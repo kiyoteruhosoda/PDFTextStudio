@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from abc import ABC, abstractmethod
 
 
@@ -64,7 +64,7 @@ class AddTextOperation(EditOperation):
 class MoveTextOperation(EditOperation):
     def __init__(self, before: TextElement, after: TextElement):
         super().__init__(after.page_index, after.element_id)
-        self.before, self.after = before, after
+        self.before, self.after = replace(before), replace(after)
 
     def execute(self, document: "Document") -> None:
         t = document.find_element(self.page_index, self.element_id)
@@ -92,7 +92,7 @@ class DeleteTextOperation(EditOperation):
 class EditTextOperation(EditOperation):
     def __init__(self, before: TextElement, after: TextElement):
         super().__init__(after.page_index, after.element_id)
-        self.before, self.after = before, after
+        self.before, self.after = replace(before), replace(after)
 
     def execute(self, document: "Document") -> None:
         t = document.find_element(self.page_index, self.element_id)
