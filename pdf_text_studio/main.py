@@ -20,6 +20,12 @@ def run():
     root.deiconify()
     app = EditorApplication(path)
     MainWindow(root, app, VERSION)
+
+    def _on_close():
+        app.shutdown()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", _on_close)
     root.mainloop()
 
 

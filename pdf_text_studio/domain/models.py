@@ -97,12 +97,22 @@ class EditTextOperation(EditOperation):
     def execute(self, document: "Document") -> None:
         t = document.find_element(self.page_index, self.element_id)
         if t:
-            t.text, t.font_size, t.font_name, t.font_path = self.after.text, self.after.font_size, self.after.font_name, self.after.font_path
+            t.text = self.after.text
+            t.coordinate = self.after.coordinate
+            t.font_size = self.after.font_size
+            t.font_name = self.after.font_name
+            t.font_path = self.after.font_path
+            t.page_index = self.after.page_index
 
     def undo(self, document: "Document") -> None:
         t = document.find_element(self.page_index, self.element_id)
         if t:
-            t.text, t.font_size, t.font_name, t.font_path = self.before.text, self.before.font_size, self.before.font_name, self.before.font_path
+            t.text = self.before.text
+            t.coordinate = self.before.coordinate
+            t.font_size = self.before.font_size
+            t.font_name = self.before.font_name
+            t.font_path = self.before.font_path
+            t.page_index = self.before.page_index
 
 
 class Document:

@@ -26,6 +26,12 @@ class MainWindow:
     def _font(self, item):
         return ImageFont.truetype(item.font_path, int(item.font_size * self.app.scale)) if item.font_path else ImageFont.load_default()
 
+    def _editable(self) -> bool:
+        if self.app.is_preview_mode:
+            self.status.set("Preview中は編集できません。Back to Editで戻ってください。")
+            return False
+        return True
+
     def _build_ui(self):
         self.root.title(f"PDFTextStudio v{self.version}")
         self.root.geometry("760x760")
@@ -39,6 +45,7 @@ class MainWindow:
         tk.Button(tb, text="Add Font", command=self.add_font).pack(side=tk.LEFT)
         tk.OptionMenu(tb, self.size_var, *[8,10,12,14,16,18,20,24,32]).pack(side=tk.LEFT)
         tk.Button(tb, text="Preview Export", command=self.preview_export).pack(side=tk.LEFT)
+        tk.Button(tb, text="Back to Edit", command=self.back_to_edit).pack(side=tk.LEFT)
 
         ops = tk.Frame(self.root); ops.pack(fill=tk.X)
         for t, c in [("Prev", self.prev_page), ("Next", self.next_page), ("Undo", self.undo), ("Redo", self.redo)]:
@@ -78,6 +85,8 @@ class MainWindow:
         return None, 0, 0
 
     def on_add(self, e):
+        if not self._editable():
+            return
         if self._find_hit(e)[0]:
             return
         font_name = self.font_var.get(); font_path = self.app.font_manager.path_of(font_name)
@@ -101,6 +110,8 @@ class MainWindow:
             self.panning = True; self.pan_start = (e.x, e.y)
 
     def on_drag(self, e):
+        if not self._editable():
+            return
         if self.app.drag_item:
             font = self._font(self.app.drag_item); asc, _ = font.getmetrics()
             nx, ny = e.x - self.app.drag_offset[0], e.y - self.app.drag_offset[1]
@@ -115,12 +126,16 @@ class MainWindow:
         self.drag_before = None; self.panning = False
 
     def on_delete(self, _):
+        if not self._editable():
+            return
         if self.selected_item:
             self.app.delete_text(self.selected_item)
             self.selected_item = None
             self.render()
 
     def on_double_click(self, e):
+        if not self._editable():
+            return
         item, _, _ = self._find_hit(e)
         if not item:
             return
@@ -156,7 +171,12 @@ class MainWindow:
     def open_pdf(self):
         path = filedialog.askopenfilename(filetypes=[('PDF', '*.pdf')])
         if not path: return
+        self.app.cleanup_preview()
         self.app.__init__(path); self.font_var.set(self.app.current_font_name); self.pan_offset = [0.0, 0.0]; self.render()
+
+    def back_to_edit(self):
+        self.app.load_source()
+        self.render()
 
     def add_font(self):
         path = filedialog.askopenfilename(filetypes=[('Font', '*.ttf *.otf')])

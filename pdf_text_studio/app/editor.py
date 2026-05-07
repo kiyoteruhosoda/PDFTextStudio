@@ -18,6 +18,8 @@ class EditorApplication:
         self.source_path = pdf_path
         self.doc = self.gateway.open(pdf_path)
         self.preview_doc = None
+        self.preview_temp_path: str | None = None
+        self.is_preview_mode = False
         self.page_index = 0
         rect = self.doc.load_page(0).rect
         self.page_width, self.page_height = rect.width, rect.height
@@ -55,14 +57,33 @@ class EditorApplication:
         return self.gateway.save_with_elements(self.source_path, out_path, self.document.elements_by_page)
 
     def create_preview(self) -> tuple[bool, str, str | None]:
+        self.cleanup_preview()
         return self.gateway.preview_with_tempfile(self.source_path, self.document.elements_by_page)
 
     def load_preview(self, preview_path: str):
+        self.cleanup_preview(close_only=True)
+        self.preview_temp_path = preview_path
         self.preview_doc = self.gateway.open(preview_path)
         self.doc = self.preview_doc
+        self.is_preview_mode = True
 
     def load_source(self):
+        self.cleanup_preview(close_only=True)
         self.doc = self.gateway.open(self.source_path)
+        self.is_preview_mode = False
+
+    def cleanup_preview(self, close_only: bool = False):
+        if self.preview_doc is not None:
+            self.preview_doc.close()
+            self.preview_doc = None
+        if (not close_only) and self.preview_temp_path and os.path.exists(self.preview_temp_path):
+            os.remove(self.preview_temp_path)
+            self.preview_temp_path = None
+
+    def shutdown(self):
+        self.cleanup_preview()
+        if self.doc is not None:
+            self.doc.close()
 
     def undo(self):
         if self.undo_stack:
