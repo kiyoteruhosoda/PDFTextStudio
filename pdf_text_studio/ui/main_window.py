@@ -67,11 +67,12 @@ class MainWindow:
         pix = page.get_pixmap(matrix=fitz.Matrix(self.app.scale, self.app.scale))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         draw = ImageDraw.Draw(img)
-        for it in self.app.elements_by_page.get(self.app.page_index, []):
-            font = self._font(it)
-            asc, des = font.getmetrics()
-            x, y_top = it.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, (0, 0), asc)
-            draw.text((x, y_top), it.text, font=font, fill="black")
+        if not self.app.is_preview_mode:
+            for it in self.app.elements_by_page.get(self.app.page_index, []):
+                font = self._font(it)
+                asc, des = font.getmetrics()
+                x, y_top = it.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, (0, 0), asc)
+                draw.text((x, y_top), it.text, font=font, fill="black")
         self.tk_img = ImageTk.PhotoImage(img)
         self.canvas.create_image(self.pan_offset[0], self.pan_offset[1], image=self.tk_img, anchor="nw")
 
@@ -102,6 +103,8 @@ class MainWindow:
             self.app.add_text(coord, txt, font_name, self.size_var.get()); self.render()
 
     def on_select(self, e):
+        if not self._editable():
+            return
         item, x, y_top = self._find_hit(e)
         self.app.drag_item = item; self.selected_item = item
         if item:
@@ -151,8 +154,15 @@ class MainWindow:
         self.render()
 
     def on_zoom(self, e): self.app.scale *= 1.2 if e.delta > 0 else 1 / 1.2; self.render()
-    def undo(self): self.app.undo(); self.render()
-    def redo(self): self.app.redo(); self.render()
+    def undo(self):
+        if not self._editable():
+            return
+        self.app.undo(); self.render()
+
+    def redo(self):
+        if not self._editable():
+            return
+        self.app.redo(); self.render()
     def next_page(self):
         if self.app.page_index < len(self.app.doc) - 1: self.app.page_index += 1; self.render()
     def prev_page(self):
