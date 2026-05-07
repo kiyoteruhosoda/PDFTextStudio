@@ -1,21 +1,22 @@
 # PDFTextStudio
 
-**Version**: 42
+**Version**: 43
 
-日本語 PDF へのテキスト追記・移動・保存を、**PDF座標（pt）中心**で安定的に扱う GUI ツールです。
+日本語 PDF へのテキスト追記・移動・削除・編集・保存を、**PDFベースライン座標（pt）中心**で扱う GUI ツールです。
 
 ## 主な改善点
 
-* PDF座標を正とした `Coordinate` ドメインモデル
-* `EditOperation` 抽象と `AddTextOperation` / `MoveTextOperation` のポリモーフィック Undo/Redo
-* 保存を PyMuPDF に統一し、日本語フォント埋め込みを `fontfile` で指定
-* フォント未設定時の警告/保存失敗を明示
-* 保存後PDFを再読み込みして即時プレビュー
+* 内部座標を **PDFベースライン座標** に統一
+* `EditOperation` 抽象 + `Add/Move/Delete/Edit` のポリモーフィック Undo/Redo
+* フォント未設定時は追加不可（`TTF/OTFフォントを選択してください`）
+* `Preview Export` ボタンで一時PDFを生成し、保存前に見た目確認
+* 保存処理は PyMuPDF で `fontfile + fontname` を指定
+* source PDF は保持し、プレビュー/保存で編集正本（TextElement）を破壊しない
 
 ## インストール
 
 ```bash
-pip install PyMuPDF Pillow
+pip install PyMuPDF Pillow pytest
 ```
 
 ## 起動
@@ -24,20 +25,23 @@ pip install PyMuPDF Pillow
 python PDFTextStudio.py <your-document.pdf>
 ```
 
-## アーキテクチャ（DDD寄り）
+## 操作
 
-- `pdf_text_studio/domain/models.py`
-  - `Coordinate`, `TextElement`, `EditOperation` などのドメイン
-- `pdf_text_studio/app/editor.py`
-  - Add/Move/Undo/Redo/Save を仲介する Application 層
-- `pdf_text_studio/infrastructure/`
-  - `font_manager.py`, `pdf_gateway.py` による外部依存の隔離
-- `pdf_text_studio/ui/main_window.py`
-  - Tkinter UI（表示・入力・ドラッグ操作）
+- 左クリック: 文字追加
+- 右ドラッグ: 移動
+- Deleteキー: 選択文字を削除
+- ダブルクリック: 選択文字を編集
+- Undo/Redo: 操作履歴を戻す/進める
+- Preview Export: 一時PDFを生成して確認
+- Save: 別名保存
 
 ## 座標ルール
 
+内部保持はベースライン座標です。
+
 ```python
+# GUI top-left -> PDF baseline
 x_pt = (x_px - offset_x) / zoom
-y_pt = page_height_pt - ((y_px - offset_y) / zoom)
+y_top_pt = page_height_pt - ((y_px - offset_y) / zoom)
+y_baseline_pt = y_top_pt - (ascent_px / zoom)
 ```
