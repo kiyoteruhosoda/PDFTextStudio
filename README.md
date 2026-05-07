@@ -1,13 +1,13 @@
 # PDFTextStudio
 
-**Version**: 40
+**Version**: 41
 
 日本語 PDF へのテキスト追記・移動・保存を、**PDF座標（pt）中心**で安定的に扱うための軽量 GUI ツールです。
 
 ## 主な改善点
 
 * 座標管理の正を **PDF座標（左下原点, pt）** に統一
-* `EditOperation` による Undo / Redo の操作履歴管理
+* `EditOperation` 抽象 + `AddTextOperation` / `MoveTextOperation` によるポリモーフィックな Undo / Redo 管理
 * 保存を **PyMuPDF中心** に統一（reportlab依存を廃止）
 * 日本語フォント（例: `NotoSansJP-Regular.ttf`）の選択と埋め込み
 * 保存後に生成 PDF を再読み込みして表示確認
