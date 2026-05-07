@@ -1,47 +1,48 @@
 # PDFTextStudio
 
-**Version**: 33
+**Version**: 43
 
-A lightweight Python GUI application for annotating PDF files with custom text. Easily add, move, and style text anywhere on the page, then export your changes as a new PDF.
+日本語 PDF へのテキスト追記・移動・削除・編集・保存を、**PDFベースライン座標（pt）中心**で扱う GUI ツールです。
 
-## Features
+## 主な改善点
 
-* **Add Text**: Click anywhere on the PDF to insert new text.
-* **Drag & Drop**: Right‑click a text element to select and drag it to a new position.
-* **Zoom**: Use the mouse wheel to zoom in and out, with text positions and hit‑tests automatically adjusted.
-* **Undo/Redo**: Revert or re‑apply your last text additions and moves.
-* **Font Support**: Choose from system `.ttf` fonts or add new ones at runtime.
-* **Multi‑Page**: Navigate through pages with `Prev`/`Next` buttons.
-* **Save PDF**: Export your annotated document to a new PDF file.
+* 内部座標を **PDFベースライン座標** に統一
+* `EditOperation` 抽象 + `Add/Move/Delete/Edit` のポリモーフィック Undo/Redo
+* フォント未設定時は追加不可（`TTF/OTFフォントを選択してください`）
+* `Preview Export` ボタンで一時PDFを生成し、保存前に見た目確認
+* 保存処理は PyMuPDF で `fontfile + fontname` を指定
+* source PDF は保持し、プレビュー/保存で編集正本（TextElement）を破壊しない
 
-## Installation
-
-1. Clone or download this repository.
-2. Install required Python packages:
-
-   ```bash
-   pip install PyMuPDF Pillow reportlab
-   ```
-3. Ensure you have Tkinter available (usually included with most Python installs).
-
-## Usage
+## インストール
 
 ```bash
-python pdf_editor.py <your-document.pdf>
+pip install PyMuPDF Pillow pytest
 ```
 
-* The application window titled **PDFTextStudio v33** will open.
-* Use the **Font** and **Size** selectors on the toolbar to configure text style.
-* **Left‑click** to add text. Enter your content in the prompt.
-* **Right‑click** a text element to select it (highlighted in blue), then drag.
-* Use the **Prev** and **Next** buttons to switch pages.
-* Click **Save** in the File menu to export your edits.
+## 起動
 
-## File Structure
+```bash
+python PDFTextStudio.py <your-document.pdf>
+```
 
-* `pdf_editor.py` – Main application script (PDFModel, PDFView, PDFController).
-* `README.md` – This documentation.
+## 操作
 
-## License
+- 左クリック: 文字追加
+- 右ドラッグ: 移動
+- Deleteキー: 選択文字を削除
+- ダブルクリック: 選択文字を編集
+- Undo/Redo: 操作履歴を戻す/進める
+- Preview Export: 一時PDFを生成して見た目確認（Previewモードへ遷移）
+- Back to Edit: 元PDF表示に戻って編集再開
+- Save: 別名保存（Preview中は無効。Back to Edit後に保存）
 
-MIT License © 2025
+## 座標ルール
+
+内部保持はベースライン座標です。
+
+```python
+# GUI top-left -> PDF baseline
+x_pt = (x_px - offset_x) / zoom
+y_top_pt = page_height_pt - ((y_px - offset_y) / zoom)
+y_baseline_pt = y_top_pt - (ascent_px / zoom)
+```
