@@ -174,6 +174,9 @@ class MainWindow:
             self.app.load_preview(path); self.render()
 
     def save_pdf(self):
+        if self.app.is_preview_mode:
+            self.status.set("Preview中は保存できません。Back to Edit で戻ってから保存してください。")
+            return
         out = filedialog.asksaveasfilename(defaultextension='.pdf', filetypes=[('PDF', '*.pdf')])
         if not out: return
         ok, msg = self.app.save(out); self.status.set(msg)
@@ -181,12 +184,21 @@ class MainWindow:
     def open_pdf(self):
         path = filedialog.askopenfilename(filetypes=[('PDF', '*.pdf')])
         if not path: return
+        self._clear_interaction_state()
         self.app.cleanup_preview()
         self.app.__init__(path); self.font_var.set(self.app.current_font_name); self.pan_offset = [0.0, 0.0]; self.render()
 
     def back_to_edit(self):
+        self._clear_interaction_state()
         self.app.load_source()
         self.render()
+
+
+    def _clear_interaction_state(self):
+        self.selected_item = None
+        self.app.drag_item = None
+        self.drag_before = None
+        self.panning = False
 
     def add_font(self):
         path = filedialog.askopenfilename(filetypes=[('Font', '*.ttf *.otf')])

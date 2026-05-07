@@ -1,6 +1,6 @@
 import fitz
 
-from pdf_text_studio.domain.models import Coordinate, TextElement, Document, AddTextOperation, MoveTextOperation, DeleteTextOperation
+from pdf_text_studio.domain.models import Coordinate, TextElement, Document, AddTextOperation, MoveTextOperation, DeleteTextOperation, EditTextOperation
 from pdf_text_studio.infrastructure.pdf_gateway import PDFGateway
 
 
@@ -46,3 +46,25 @@ def test_save_reject_overwrite(tmp_path):
     ok, msg = gateway.save_with_elements(str(src), str(src), {})
     assert ok is False
     assert "上書き" in msg
+
+
+def test_edit_text_operation_execute_undo():
+    doc = Document()
+    before = TextElement(1, 0, "old", Coordinate(100, 500), 12, "Noto", "/tmp/font.ttf")
+    AddTextOperation(before).execute(doc)
+    after = TextElement(1, 0, "new", Coordinate(120, 520), 18, "Noto2", "/tmp/font2.ttf")
+
+    op = EditTextOperation(before, after)
+    op.execute(doc)
+    edited = doc.find_element(0, 1)
+    assert edited.text == "new"
+    assert edited.coordinate == Coordinate(120, 520)
+    assert edited.font_size == 18
+    assert edited.font_name == "Noto2"
+
+    op.undo(doc)
+    restored = doc.find_element(0, 1)
+    assert restored.text == "old"
+    assert restored.coordinate == Coordinate(100, 500)
+    assert restored.font_size == 12
+    assert restored.font_name == "Noto"

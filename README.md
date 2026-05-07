@@ -32,8 +32,9 @@ python PDFTextStudio.py <your-document.pdf>
 - Deleteキー: 選択文字を削除
 - ダブルクリック: 選択文字を編集
 - Undo/Redo: 操作履歴を戻す/進める
-- Preview Export: 一時PDFを生成して確認
-- Save: 別名保存
+- Preview Export: 一時PDFを生成して見た目確認（Previewモードへ遷移）
+- Back to Edit: 元PDF表示に戻って編集再開
+- Save: 別名保存（Preview中は無効。Back to Edit後に保存）
 
 ## 座標ルール
 
