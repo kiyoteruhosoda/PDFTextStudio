@@ -2,6 +2,7 @@ import fitz
 
 from pdf_text_studio.domain.models import Coordinate, TextElement, Document, AddTextOperation, MoveTextOperation, DeleteTextOperation, EditTextOperation
 from pdf_text_studio.infrastructure.pdf_gateway import PDFGateway
+from pdf_text_studio.app.editor import EditorApplication
 
 
 def test_coordinate_roundtrip_baseline():
@@ -68,3 +69,22 @@ def test_edit_text_operation_execute_undo():
     assert restored.coordinate == Coordinate(100, 500)
     assert restored.font_size == 12
     assert restored.font_name == "Noto"
+
+
+def test_create_empty_document_has_single_page():
+    gateway = PDFGateway()
+    doc = gateway.create_empty_document()
+    try:
+        assert len(doc) == 1
+    finally:
+        doc.close()
+
+
+def test_editor_can_boot_without_source_and_save(tmp_path):
+    app = EditorApplication()
+    out = tmp_path / "empty_saved.pdf"
+    ok, msg = app.save(str(out))
+    app.shutdown()
+    assert ok is True
+    assert "保存" in msg
+    assert out.exists()

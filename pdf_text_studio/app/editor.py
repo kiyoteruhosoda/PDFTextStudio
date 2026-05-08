@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import replace
 
 from pdf_text_studio.domain.models import (
@@ -12,11 +13,11 @@ from pdf_text_studio.infrastructure.pdf_gateway import PDFGateway
 
 
 class EditorApplication:
-    def __init__(self, pdf_path: str):
+    def __init__(self, pdf_path: str | None = None):
         self.gateway = PDFGateway()
         self.font_manager = FontManager()
         self.source_path = pdf_path
-        self.doc = self.gateway.open(pdf_path)
+        self.doc = self.gateway.open(pdf_path) if pdf_path else self.gateway.create_empty_document()
         self.preview_doc = None
         self.preview_temp_path: str | None = None
         self.is_preview_mode = False
@@ -52,13 +53,23 @@ class EditorApplication:
     def edit_text(self, before: TextElement, after: TextElement): self.apply_operation(EditTextOperation(before, after))
 
     def save(self, out_path: str) -> tuple[bool, str]:
-        if os.path.abspath(out_path) == os.path.abspath(self.source_path):
+        if self.source_path and os.path.abspath(out_path) == os.path.abspath(self.source_path):
             return False, "元PDFへの上書きは禁止です。別名保存してください。"
-        return self.gateway.save_with_elements(self.source_path, out_path, self.document.elements_by_page)
+        if self.source_path:
+            return self.gateway.save_with_elements(self.source_path, out_path, self.document.elements_by_page)
+        return self.gateway.save_from_document(self.doc, out_path, self.document.elements_by_page)
 
     def create_preview(self) -> tuple[bool, str, str | None]:
         self.cleanup_preview()
-        return self.gateway.preview_with_tempfile(self.source_path, self.document.elements_by_page)
+        if self.source_path:
+            return self.gateway.preview_with_tempfile(self.source_path, self.document.elements_by_page)
+
+        fd, temp_path = tempfile.mkstemp(suffix='.pdf', prefix='pdftextstudio_source_')
+        os.close(fd)
+        self.doc.save(temp_path)
+        ok, msg, preview_path = self.gateway.preview_with_tempfile(temp_path, self.document.elements_by_page)
+        os.remove(temp_path)
+        return ok, msg, preview_path
 
     def load_preview(self, preview_path: str):
         self.cleanup_preview(close_only=True)
@@ -69,7 +80,7 @@ class EditorApplication:
 
     def load_source(self):
         self.cleanup_preview(close_only=True)
-        self.doc = self.gateway.open(self.source_path)
+        self.doc = self.gateway.open(self.source_path) if self.source_path else self.gateway.create_empty_document()
         self.is_preview_mode = False
 
     def cleanup_preview(self, close_only: bool = False):

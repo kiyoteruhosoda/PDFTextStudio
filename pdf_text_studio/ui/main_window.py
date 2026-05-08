@@ -36,7 +36,8 @@ class MainWindow:
         self.root.title(f"PDFTextStudio v{self.version}")
         self.root.geometry("760x760")
         menubar = tk.Menu(self.root); filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Open", command=self.open_pdf); filem.add_command(label="Save", command=self.save_pdf)
+        filem.add_command(label="Open", command=self.open_pdf)
+        filem.add_command(label="Save", command=self.save_pdf)
         menubar.add_cascade(label="File", menu=filem); self.root.config(menu=menubar)
 
         tb = tk.Frame(self.root); tb.pack(fill=tk.X)
@@ -51,7 +52,8 @@ class MainWindow:
         for t, c in [("Prev", self.prev_page), ("Next", self.next_page), ("Undo", self.undo), ("Redo", self.redo)]:
             tk.Button(ops, text=t, command=c).pack(side=tk.LEFT)
 
-        self.status = tk.StringVar(value="Ready")
+        initial_status = "新規ドキュメントを開きました。File > Open からPDFを選択できます。" if self.app.source_path is None else "Ready"
+        self.status = tk.StringVar(value=initial_status)
         tk.Label(self.root, textvariable=self.status, anchor="w").pack(fill=tk.X, side=tk.BOTTOM)
 
         self.canvas = tk.Canvas(self.root, bg="white"); self.canvas.pack(fill=tk.BOTH, expand=True)
