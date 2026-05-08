@@ -4,19 +4,23 @@ from dataclasses import replace
 
 import fitz
 from PIL import Image, ImageDraw, ImageFont
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QAction, QImage, QKeyEvent, QMouseEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDockWidget,
     QFileDialog,
-    QHBoxLayout,
+    QFormLayout,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPushButton,
-    QComboBox,
-    QVBoxLayout,
+    QScrollArea,
+    QToolBar,
     QWidget,
 )
 
@@ -24,34 +28,44 @@ from pdf_text_studio.app.editor import EditorApplication
 from pdf_text_studio.domain.models import Coordinate
 
 
-class PdfCanvas(QLabel):
-    def __init__(self, window: "MainWindow") -> None:
-        super().__init__()
+class PdfGraphicsView(QGraphicsView):
+    def __init__(self, window: "MainWindow", scene: QGraphicsScene) -> None:
+        super().__init__(scene)
         self.window = window
-        self.setMouseTracking(True)
+        self.setRenderHint(self.renderHints())
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        pos = self.mapToScene(event.pos())
         if event.button() == Qt.MouseButton.LeftButton:
-            self.window.on_add(event.position().toPoint())
+            self.window.on_add(pos)
         elif event.button() == Qt.MouseButton.RightButton:
-            self.window.on_select(event.position().toPoint())
+            self.window.on_select(pos)
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if event.buttons() & Qt.MouseButton.RightButton:
-            self.window.on_drag(event.position().toPoint())
+            self.window.on_drag(self.mapToScene(event.pos()))
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.RightButton:
             self.window.on_release()
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.window.on_double_click(event.position().toPoint())
+            self.window.on_double_click(self.mapToScene(event.pos()))
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        self.window.on_zoom(event.angleDelta().y())
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.window.on_zoom(event.angleDelta().y())
+            return
+        super().wheelEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Delete:
@@ -70,6 +84,9 @@ class MainWindow(QMainWindow):
         self.panning = False
         self.drag_before = None
         self.selected_item = None
+        self.scene = QGraphicsScene(self)
+        self.pdf_item = QGraphicsPixmapItem()
+        self.scene.addItem(self.pdf_item)
         self._build_ui()
         self.render()
 
@@ -84,21 +101,34 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         self.setWindowTitle(f"PDFTextStudio v{self.version}")
-        self.resize(760, 760)
+        self.resize(1200, 800)
 
         file_menu = self.menuBar().addMenu("File")
-        open_action = QAction("Open", self)
-        save_action = QAction("Save", self)
-        open_action.triggered.connect(self.open_pdf)
-        save_action.triggered.connect(self.save_pdf)
-        file_menu.addAction(open_action)
-        file_menu.addAction(save_action)
+        for title, handler in [("Open", self.open_pdf), ("Save", self.save_pdf)]:
+            action = QAction(title, self)
+            action.triggered.connect(handler)
+            file_menu.addAction(action)
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        toolbar = QToolBar("Main Actions", self)
+        self.addToolBar(toolbar)
+        for title, handler in [
+            ("Prev", self.prev_page),
+            ("Next", self.next_page),
+            ("Undo", self.undo),
+            ("Redo", self.redo),
+            ("Preview Export", self.preview_export),
+            ("Back to Edit", self.back_to_edit),
+            ("Add Font", self.add_font),
+        ]:
+            action = QAction(title, self)
+            action.triggered.connect(handler)
+            toolbar.addAction(action)
 
-        toolbar = QHBoxLayout()
+        sidebar = QDockWidget("Inspector", self)
+        sidebar.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        side_content = QWidget()
+        form = QFormLayout(side_content)
+
         self.font_combo = QComboBox()
         self.font_combo.addItems(self.app.font_manager.names())
         self.font_combo.setCurrentText(self.app.current_font_name)
@@ -106,32 +136,26 @@ class MainWindow(QMainWindow):
         for size in [8, 10, 12, 14, 16, 18, 20, 24, 32]:
             self.size_combo.addItem(str(size), size)
         self.size_combo.setCurrentText(str(self.app.current_font_size))
-        toolbar.addWidget(self.font_combo)
-        add_font_button = QPushButton("Add Font")
-        add_font_button.clicked.connect(self.add_font)
-        toolbar.addWidget(add_font_button)
-        toolbar.addWidget(self.size_combo)
-        preview_button = QPushButton("Preview Export")
-        preview_button.clicked.connect(self.preview_export)
-        toolbar.addWidget(preview_button)
-        back_button = QPushButton("Back to Edit")
-        back_button.clicked.connect(self.back_to_edit)
-        toolbar.addWidget(back_button)
-        layout.addLayout(toolbar)
+        self.page_label = QLabel()
+        self.zoom_label = QLabel()
+        self.mode_label = QLabel()
+        self.status_label = QLabel()
 
-        ops = QHBoxLayout()
-        for title, handler in [("Prev", self.prev_page), ("Next", self.next_page), ("Undo", self.undo), ("Redo", self.redo)]:
-            button = QPushButton(title)
-            button.clicked.connect(handler)
-            ops.addWidget(button)
-        layout.addLayout(ops)
+        form.addRow("Font", self.font_combo)
+        form.addRow("Size", self.size_combo)
+        form.addRow("Page", self.page_label)
+        form.addRow("Zoom", self.zoom_label)
+        form.addRow("Mode", self.mode_label)
+        form.addRow("Status", self.status_label)
+        side_content.setFixedWidth(260)
+        sidebar.setWidget(side_content)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, sidebar)
 
-        self.canvas = PdfCanvas(self)
-        layout.addWidget(self.canvas, stretch=1)
-
-        initial_status = "新規ドキュメントを開きました。File > Open からPDFを選択できます。" if self.app.source_path is None else "Ready"
-        self.status_label = QLabel(initial_status)
-        layout.addWidget(self.status_label)
+        self.view = PdfGraphicsView(self, self.scene)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.view)
+        self.setCentralWidget(self.scroll_area)
 
     def _size_value(self) -> int:
         return int(self.size_combo.currentData() or int(self.size_combo.currentText()))
@@ -150,20 +174,15 @@ class MainWindow(QMainWindow):
                 draw.text((x, y_top), it.text, font=font, fill="black")
 
         qimage = QImage(img.tobytes("raw", "RGB"), img.width, img.height, QImage.Format.Format_RGB888)
-        base = QPixmap.fromImage(qimage.copy())
-        canvas_pixmap = QPixmap(base.width() + abs(int(self.pan_offset[0])) + 20, base.height() + abs(int(self.pan_offset[1])) + 20)
-        canvas_pixmap.fill(Qt.GlobalColor.white)
-        painter_pos = QPoint(max(0, int(self.pan_offset[0])), max(0, int(self.pan_offset[1])))
-        from PySide6.QtGui import QPainter
+        self.pdf_item.setPixmap(QPixmap.fromImage(qimage.copy()))
+        self.scene.setSceneRect(self.pdf_item.boundingRect())
+        self.page_label.setText(f"{self.app.page_index + 1} / {len(self.app.doc)}")
+        self.zoom_label.setText(f"{self.app.scale * 100:.0f}%")
+        self.mode_label.setText("Preview" if self.app.is_preview_mode else "Edit")
+        if not self.status_label.text():
+            self.status_label.setText("Ready")
 
-        painter = QPainter(canvas_pixmap)
-        painter.drawPixmap(painter_pos, base)
-        painter.end()
-        self.canvas.setPixmap(canvas_pixmap)
-        self.canvas.adjustSize()
-        self.canvas.setFocus()
-
-    def _find_hit(self, p: QPoint):
+    def _find_hit(self, p: QPointF):
         for item in reversed(self.app.elements_by_page.get(self.app.page_index, [])):
             font = self._font(item)
             asc, des = font.getmetrics()
@@ -173,7 +192,7 @@ class MainWindow(QMainWindow):
                 return item, x, y_top
         return None, 0, 0
 
-    def on_add(self, p: QPoint):
+    def on_add(self, p: QPointF):
         if not self._editable() or self._find_hit(p)[0]:
             return
         font_name = self.font_combo.currentText()
@@ -184,14 +203,14 @@ class MainWindow(QMainWindow):
         tmp_font = ImageFont.truetype(font_path, int(self._size_value() * self.app.scale))
         asc, _ = tmp_font.getmetrics()
         coord = Coordinate.gui_to_pdf_baseline(p.x(), p.y(), self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
-        self.show_entry(p.x(), p.y(), font_name, self._size_value(), lambda txt: self._commit_add(txt, coord, font_name))
+        self.show_entry(int(p.x()), int(p.y()), lambda txt: self._commit_add(txt, coord, font_name))
 
     def _commit_add(self, txt, coord, font_name):
         if txt:
             self.app.add_text(coord, txt, font_name, self._size_value())
             self.render()
 
-    def on_select(self, p: QPoint):
+    def on_select(self, p: QPointF):
         if not self._editable():
             return
         item, x, y_top = self._find_hit(p)
@@ -205,7 +224,7 @@ class MainWindow(QMainWindow):
             self.panning = True
             self.pan_start = (p.x(), p.y())
 
-    def on_drag(self, p: QPoint):
+    def on_drag(self, p: QPointF):
         if not self._editable():
             return
         if self.app.drag_item:
@@ -213,12 +232,6 @@ class MainWindow(QMainWindow):
             asc, _ = font.getmetrics()
             nx, ny = p.x() - self.app.drag_offset[0], p.y() - self.app.drag_offset[1]
             self.app.drag_item.coordinate = Coordinate.gui_to_pdf_baseline(nx, ny, self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
-            self.render()
-        elif self.panning:
-            dx, dy = p.x() - self.pan_start[0], p.y() - self.pan_start[1]
-            self.pan_offset[0] += dx
-            self.pan_offset[1] += dy
-            self.pan_start = (p.x(), p.y())
             self.render()
 
     def on_release(self):
@@ -233,7 +246,7 @@ class MainWindow(QMainWindow):
             self.selected_item = None
             self.render()
 
-    def on_double_click(self, p: QPoint):
+    def on_double_click(self, p: QPointF):
         if not self._editable():
             return
         item, _, _ = self._find_hit(p)
@@ -256,30 +269,24 @@ class MainWindow(QMainWindow):
 
     def undo(self):
         if self._editable():
-            self.app.undo()
-            self.render()
+            self.app.undo(); self.render()
 
     def redo(self):
         if self._editable():
-            self.app.redo()
-            self.render()
+            self.app.redo(); self.render()
 
     def next_page(self):
         if self.app.page_index < len(self.app.doc) - 1:
-            self.app.page_index += 1
-            self.render()
+            self.app.page_index += 1; self.render()
 
     def prev_page(self):
         if self.app.page_index > 0:
-            self.app.page_index -= 1
-            self.render()
+            self.app.page_index -= 1; self.render()
 
     def preview_export(self):
-        ok, msg, path = self.app.create_preview()
-        self.status_label.setText(msg)
+        ok, msg, path = self.app.create_preview(); self.status_label.setText(msg)
         if ok and path:
-            self.app.load_preview(path)
-            self.render()
+            self.app.load_preview(path); self.render()
 
     def save_pdf(self):
         if self.app.is_preview_mode:
@@ -288,53 +295,40 @@ class MainWindow(QMainWindow):
         out, _ = QFileDialog.getSaveFileName(self, "Save PDF", filter="PDF (*.pdf)")
         if not out:
             return
-        _, msg = self.app.save(out)
-        self.status_label.setText(msg)
+        _, msg = self.app.save(out); self.status_label.setText(msg)
 
     def open_pdf(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", filter="PDF (*.pdf)")
         if not path:
             return
-        self._clear_interaction_state()
-        self.app.cleanup_preview()
-        self.app.__init__(path)
+        self._clear_interaction_state(); self.app.cleanup_preview(); self.app.__init__(path)
         self.font_combo.setCurrentText(self.app.current_font_name)
         self.pan_offset = [0.0, 0.0]
+        self.status_label.setText("Ready")
         self.render()
 
     def back_to_edit(self):
-        self._clear_interaction_state()
-        self.app.load_source()
-        self.render()
+        self._clear_interaction_state(); self.app.load_source(); self.render()
 
     def _clear_interaction_state(self):
-        self.selected_item = None
-        self.app.drag_item = None
-        self.drag_before = None
-        self.panning = False
+        self.selected_item = None; self.app.drag_item = None; self.drag_before = None; self.panning = False
 
     def add_font(self):
         path, _ = QFileDialog.getOpenFileName(self, "Add Font", filter="Fonts (*.ttf *.otf)")
         if not path:
             return
-        name = self.app.font_manager.add_font(path)
-        self.font_combo.addItem(name)
-        self.font_combo.setCurrentText(name)
+        name = self.app.font_manager.add_font(path); self.font_combo.addItem(name); self.font_combo.setCurrentText(name)
 
-    def show_entry(self, x, y, _font_name, _font_size, on_commit):
+    def show_entry(self, x: int, y: int, on_commit):
         if self.entry:
             self.entry.deleteLater()
-        self.entry = QLineEdit(self.canvas)
+        self.entry = QLineEdit(self.view.viewport())
         self.entry.move(x, y)
         self.entry.returnPressed.connect(lambda: self._commit_entry(on_commit))
         self.entry.editingFinished.connect(lambda: self._commit_entry(on_commit))
-        self.entry.show()
-        self.entry.setFocus()
+        self.entry.show(); self.entry.setFocus()
 
     def _commit_entry(self, on_commit):
         if not self.entry:
             return
-        text = self.entry.text()
-        self.entry.deleteLater()
-        self.entry = None
-        on_commit(text)
+        text = self.entry.text(); self.entry.deleteLater(); self.entry = None; on_commit(text)

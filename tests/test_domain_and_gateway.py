@@ -1,4 +1,5 @@
-import fitz
+import pytest
+fitz = pytest.importorskip("fitz")
 
 from pdf_text_studio.domain.models import Coordinate, TextElement, Document, AddTextOperation, MoveTextOperation, DeleteTextOperation, EditTextOperation
 from pdf_text_studio.infrastructure.pdf_gateway import PDFGateway
