@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QScrollArea,
     QToolBar,
     QWidget,
 )
@@ -33,7 +32,7 @@ class PdfGraphicsView(QGraphicsView):
         super().__init__(scene)
         self.window = window
         self.setRenderHint(self.renderHints())
-        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -79,9 +78,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.app, self.version = app, version
         self.entry: QLineEdit | None = None
-        self.pan_offset = [0.0, 0.0]
-        self.pan_start = (0.0, 0.0)
-        self.panning = False
         self.drag_before = None
         self.selected_item = None
         self.scene = QGraphicsScene(self)
@@ -152,10 +148,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, sidebar)
 
         self.view = PdfGraphicsView(self, self.scene)
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.view)
-        self.setCentralWidget(self.scroll_area)
+        self.setCentralWidget(self.view)
 
     def _size_value(self) -> int:
         return int(self.size_combo.currentData() or int(self.size_combo.currentText()))
@@ -187,7 +180,7 @@ class MainWindow(QMainWindow):
             font = self._font(item)
             asc, des = font.getmetrics()
             w = font.getlength(item.text) if hasattr(font, "getlength") else font.getsize(item.text)[0]
-            x, y_top = item.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
+            x, y_top = item.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, (0, 0), asc)
             if x <= p.x() <= x + w and y_top <= p.y() <= y_top + asc + des:
                 return item, x, y_top
         return None, 0, 0
@@ -202,7 +195,7 @@ class MainWindow(QMainWindow):
             return
         tmp_font = ImageFont.truetype(font_path, int(self._size_value() * self.app.scale))
         asc, _ = tmp_font.getmetrics()
-        coord = Coordinate.gui_to_pdf_baseline(p.x(), p.y(), self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
+        coord = Coordinate.gui_to_pdf_baseline(p.x(), p.y(), self.app.scale, self.app.page_height, (0, 0), asc)
         self.show_entry(int(p.x()), int(p.y()), lambda txt: self._commit_add(txt, coord, font_name))
 
     def _commit_add(self, txt, coord, font_name):
@@ -219,10 +212,6 @@ class MainWindow(QMainWindow):
         if item:
             self.drag_before = replace(item)
             self.app.drag_offset = (p.x() - x, p.y() - y_top)
-            self.panning = False
-        else:
-            self.panning = True
-            self.pan_start = (p.x(), p.y())
 
     def on_drag(self, p: QPointF):
         if not self._editable():
@@ -231,14 +220,13 @@ class MainWindow(QMainWindow):
             font = self._font(self.app.drag_item)
             asc, _ = font.getmetrics()
             nx, ny = p.x() - self.app.drag_offset[0], p.y() - self.app.drag_offset[1]
-            self.app.drag_item.coordinate = Coordinate.gui_to_pdf_baseline(nx, ny, self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
+            self.app.drag_item.coordinate = Coordinate.gui_to_pdf_baseline(nx, ny, self.app.scale, self.app.page_height, (0, 0), asc)
             self.render()
 
     def on_release(self):
         if self.app.drag_item and self.drag_before:
             self.app.move_text(self.drag_before, replace(self.app.drag_item))
         self.drag_before = None
-        self.panning = False
 
     def on_delete(self):
         if self._editable() and self.selected_item:
@@ -303,7 +291,6 @@ class MainWindow(QMainWindow):
             return
         self._clear_interaction_state(); self.app.cleanup_preview(); self.app.__init__(path)
         self.font_combo.setCurrentText(self.app.current_font_name)
-        self.pan_offset = [0.0, 0.0]
         self.status_label.setText("Ready")
         self.render()
 
@@ -311,7 +298,7 @@ class MainWindow(QMainWindow):
         self._clear_interaction_state(); self.app.load_source(); self.render()
 
     def _clear_interaction_state(self):
-        self.selected_item = None; self.app.drag_item = None; self.drag_before = None; self.panning = False
+        self.selected_item = None; self.app.drag_item = None; self.drag_before = None
 
     def add_font(self):
         path, _ = QFileDialog.getOpenFileName(self, "Add Font", filter="Fonts (*.ttf *.otf)")
