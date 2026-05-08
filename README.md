@@ -22,7 +22,11 @@ pip install PyMuPDF Pillow pytest
 ## 起動
 
 ```bash
+# 既存PDFを開く
 python PDFTextStudio.py <your-document.pdf>
+
+# ファイル未指定で起動（空のウィンドウ）
+python PDFTextStudio.py
 ```
 
 ## 操作
