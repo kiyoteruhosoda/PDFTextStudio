@@ -36,7 +36,8 @@ class MainWindow:
         self.root.title(f"PDFTextStudio v{self.version}")
         self.root.geometry("760x760")
         menubar = tk.Menu(self.root); filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Open", command=self.open_pdf); filem.add_command(label="Save", command=self.save_pdf)
+        filem.add_command(label="Open", command=self.open_pdf)
+        filem.add_command(label="Save", command=self.save_pdf)
         menubar.add_cascade(label="File", menu=filem); self.root.config(menu=menubar)
 
         tb = tk.Frame(self.root); tb.pack(fill=tk.X)
