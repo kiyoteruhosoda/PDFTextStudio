@@ -16,13 +16,14 @@
 ## インストール
 
 ```bash
-pip install PyMuPDF Pillow pytest
+python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install PyMuPDF Pillow pytest
 ```
 
 ## 起動
 
 ```bash
-python PDFTextStudio.py <your-document.pdf>
+python -m venv .venv
+python PDFTextStudio.py <your-document.pdf
 ```
 
 ## 操作
