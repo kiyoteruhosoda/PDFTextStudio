@@ -32,7 +32,7 @@ class PdfGraphicsView(QGraphicsView):
         super().__init__(scene)
         self.window = window
         self.setRenderHint(self.renderHints())
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -40,19 +40,35 @@ class PdfGraphicsView(QGraphicsView):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         pos = self.mapToScene(event.pos())
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.window.on_add(pos)
-        elif event.button() == Qt.MouseButton.RightButton:
+            super().mousePressEvent(event)
+            return
+        if event.button() == Qt.MouseButton.RightButton:
             self.window.on_select(pos)
+            if self.window.app.drag_item is None:
+                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+                super().mousePressEvent(event)
+            else:
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if event.buttons() & Qt.MouseButton.RightButton:
-            self.window.on_drag(self.mapToScene(event.pos()))
+            if self.window.app.drag_item is not None:
+                self.window.on_drag(self.mapToScene(event.pos()))
+                return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.RightButton:
-            self.window.on_release()
+            if self.window.app.drag_item is not None:
+                self.window.on_release()
+            else:
+                super().mouseReleaseEvent(event)
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            return
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
