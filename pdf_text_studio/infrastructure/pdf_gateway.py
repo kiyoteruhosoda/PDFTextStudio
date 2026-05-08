@@ -12,6 +12,11 @@ class PDFGateway:
     def open(self, path: str) -> fitz.Document:
         return fitz.open(path)
 
+    def create_empty_document(self) -> fitz.Document:
+        doc = fitz.open()
+        doc.new_page()
+        return doc
+
     def _write_elements(self, out_doc: fitz.Document, elements_by_page: dict[int, list[TextElement]]) -> tuple[bool, str]:
         for page_idx, elements in elements_by_page.items():
             page = out_doc.load_page(page_idx)
@@ -29,6 +34,17 @@ class PDFGateway:
         ok, msg = self._write_elements(out_doc, elements_by_page)
         if not ok:
             out_doc.close(); return False, msg
+        out_doc.save(out_path)
+        out_doc.close()
+        return True, "保存しました。"
+
+    def save_from_document(self, source_doc: fitz.Document, out_path: str, elements_by_page: dict[int, list[TextElement]]) -> tuple[bool, str]:
+        out_doc = fitz.open()
+        out_doc.insert_pdf(source_doc)
+        ok, msg = self._write_elements(out_doc, elements_by_page)
+        if not ok:
+            out_doc.close()
+            return False, msg
         out_doc.save(out_path)
         out_doc.close()
         return True, "保存しました。"
