@@ -1,20 +1,70 @@
 from __future__ import annotations
 
-import tkinter as tk
 from dataclasses import replace
-from tkinter import filedialog, messagebox, simpledialog
 
 import fitz
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction, QImage, QKeyEvent, QMouseEvent, QPixmap, QWheelEvent
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QComboBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from pdf_text_studio.app.editor import EditorApplication
 from pdf_text_studio.domain.models import Coordinate
 
 
-class MainWindow:
-    def __init__(self, root: tk.Tk, app: EditorApplication, version: str):
-        self.root, self.app, self.version = root, app, version
-        self.entry = None
+class PdfCanvas(QLabel):
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__()
+        self.window = window
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.window.on_add(event.position().toPoint())
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.window.on_select(event.position().toPoint())
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if event.buttons() & Qt.MouseButton.RightButton:
+            self.window.on_drag(event.position().toPoint())
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.RightButton:
+            self.window.on_release()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.window.on_double_click(event.position().toPoint())
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        self.window.on_zoom(event.angleDelta().y())
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Delete:
+            self.window.on_delete()
+            return
+        super().keyPressEvent(event)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, app: EditorApplication, version: str):
+        super().__init__()
+        self.app, self.version = app, version
+        self.entry: QLineEdit | None = None
         self.pan_offset = [0.0, 0.0]
         self.pan_start = (0.0, 0.0)
         self.panning = False
@@ -28,42 +78,65 @@ class MainWindow:
 
     def _editable(self) -> bool:
         if self.app.is_preview_mode:
-            self.status.set("Preview中は編集できません。Back to Editで戻ってください。")
+            self.status_label.setText("Preview中は編集できません。Back to Editで戻ってください。")
             return False
         return True
 
-    def _build_ui(self):
-        self.root.title(f"PDFTextStudio v{self.version}")
-        self.root.geometry("760x760")
-        menubar = tk.Menu(self.root); filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Open", command=self.open_pdf)
-        filem.add_command(label="Save", command=self.save_pdf)
-        menubar.add_cascade(label="File", menu=filem); self.root.config(menu=menubar)
+    def _build_ui(self) -> None:
+        self.setWindowTitle(f"PDFTextStudio v{self.version}")
+        self.resize(760, 760)
 
-        tb = tk.Frame(self.root); tb.pack(fill=tk.X)
-        self.font_var = tk.StringVar(value=self.app.current_font_name); self.size_var = tk.IntVar(value=self.app.current_font_size)
-        self.font_menu = tk.OptionMenu(tb, self.font_var, *self.app.font_manager.names()); self.font_menu.pack(side=tk.LEFT)
-        tk.Button(tb, text="Add Font", command=self.add_font).pack(side=tk.LEFT)
-        tk.OptionMenu(tb, self.size_var, *[8,10,12,14,16,18,20,24,32]).pack(side=tk.LEFT)
-        tk.Button(tb, text="Preview Export", command=self.preview_export).pack(side=tk.LEFT)
-        tk.Button(tb, text="Back to Edit", command=self.back_to_edit).pack(side=tk.LEFT)
+        file_menu = self.menuBar().addMenu("File")
+        open_action = QAction("Open", self)
+        save_action = QAction("Save", self)
+        open_action.triggered.connect(self.open_pdf)
+        save_action.triggered.connect(self.save_pdf)
+        file_menu.addAction(open_action)
+        file_menu.addAction(save_action)
 
-        ops = tk.Frame(self.root); ops.pack(fill=tk.X)
-        for t, c in [("Prev", self.prev_page), ("Next", self.next_page), ("Undo", self.undo), ("Redo", self.redo)]:
-            tk.Button(ops, text=t, command=c).pack(side=tk.LEFT)
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+
+        toolbar = QHBoxLayout()
+        self.font_combo = QComboBox()
+        self.font_combo.addItems(self.app.font_manager.names())
+        self.font_combo.setCurrentText(self.app.current_font_name)
+        self.size_combo = QComboBox()
+        for size in [8, 10, 12, 14, 16, 18, 20, 24, 32]:
+            self.size_combo.addItem(str(size), size)
+        self.size_combo.setCurrentText(str(self.app.current_font_size))
+        toolbar.addWidget(self.font_combo)
+        add_font_button = QPushButton("Add Font")
+        add_font_button.clicked.connect(self.add_font)
+        toolbar.addWidget(add_font_button)
+        toolbar.addWidget(self.size_combo)
+        preview_button = QPushButton("Preview Export")
+        preview_button.clicked.connect(self.preview_export)
+        toolbar.addWidget(preview_button)
+        back_button = QPushButton("Back to Edit")
+        back_button.clicked.connect(self.back_to_edit)
+        toolbar.addWidget(back_button)
+        layout.addLayout(toolbar)
+
+        ops = QHBoxLayout()
+        for title, handler in [("Prev", self.prev_page), ("Next", self.next_page), ("Undo", self.undo), ("Redo", self.redo)]:
+            button = QPushButton(title)
+            button.clicked.connect(handler)
+            ops.addWidget(button)
+        layout.addLayout(ops)
+
+        self.canvas = PdfCanvas(self)
+        layout.addWidget(self.canvas, stretch=1)
 
         initial_status = "新規ドキュメントを開きました。File > Open からPDFを選択できます。" if self.app.source_path is None else "Ready"
-        self.status = tk.StringVar(value=initial_status)
-        tk.Label(self.root, textvariable=self.status, anchor="w").pack(fill=tk.X, side=tk.BOTTOM)
+        self.status_label = QLabel(initial_status)
+        layout.addWidget(self.status_label)
 
-        self.canvas = tk.Canvas(self.root, bg="white"); self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.bind("<Button-1>", self.on_add); self.canvas.bind("<Button-3>", self.on_select)
-        self.canvas.bind("<B3-Motion>", self.on_drag); self.canvas.bind("<ButtonRelease-3>", self.on_release)
-        self.canvas.bind("<Double-Button-1>", self.on_double_click); self.canvas.bind("<MouseWheel>", self.on_zoom)
-        self.root.bind("<Delete>", self.on_delete)
+    def _size_value(self) -> int:
+        return int(self.size_combo.currentData() or int(self.size_combo.currentText()))
 
-    def render(self):
-        self.canvas.delete("all")
+    def render(self) -> None:
         page = self.app.doc.load_page(self.app.page_index)
         self.app.page_width, self.app.page_height = page.rect.width, page.rect.height
         pix = page.get_pixmap(matrix=fitz.Matrix(self.app.scale, self.app.scale))
@@ -72,129 +145,167 @@ class MainWindow:
         if not self.app.is_preview_mode:
             for it in self.app.elements_by_page.get(self.app.page_index, []):
                 font = self._font(it)
-                asc, des = font.getmetrics()
+                asc, _ = font.getmetrics()
                 x, y_top = it.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, (0, 0), asc)
                 draw.text((x, y_top), it.text, font=font, fill="black")
-        self.tk_img = ImageTk.PhotoImage(img)
-        self.canvas.create_image(self.pan_offset[0], self.pan_offset[1], image=self.tk_img, anchor="nw")
 
-    def _find_hit(self, e):
+        qimage = QImage(img.tobytes("raw", "RGB"), img.width, img.height, QImage.Format.Format_RGB888)
+        base = QPixmap.fromImage(qimage.copy())
+        canvas_pixmap = QPixmap(base.width() + abs(int(self.pan_offset[0])) + 20, base.height() + abs(int(self.pan_offset[1])) + 20)
+        canvas_pixmap.fill(Qt.GlobalColor.white)
+        painter_pos = QPoint(max(0, int(self.pan_offset[0])), max(0, int(self.pan_offset[1])))
+        from PySide6.QtGui import QPainter
+
+        painter = QPainter(canvas_pixmap)
+        painter.drawPixmap(painter_pos, base)
+        painter.end()
+        self.canvas.setPixmap(canvas_pixmap)
+        self.canvas.adjustSize()
+        self.canvas.setFocus()
+
+    def _find_hit(self, p: QPoint):
         for item in reversed(self.app.elements_by_page.get(self.app.page_index, [])):
             font = self._font(item)
-            asc, des = font.getmetrics(); w = font.getlength(item.text) if hasattr(font, "getlength") else font.getsize(item.text)[0]
+            asc, des = font.getmetrics()
+            w = font.getlength(item.text) if hasattr(font, "getlength") else font.getsize(item.text)[0]
             x, y_top = item.coordinate.pdf_baseline_to_gui_top(self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
-            if x <= e.x <= x + w and y_top <= e.y <= y_top + asc + des:
+            if x <= p.x() <= x + w and y_top <= p.y() <= y_top + asc + des:
                 return item, x, y_top
         return None, 0, 0
 
-    def on_add(self, e):
-        if not self._editable():
+    def on_add(self, p: QPoint):
+        if not self._editable() or self._find_hit(p)[0]:
             return
-        if self._find_hit(e)[0]:
-            return
-        font_name = self.font_var.get(); font_path = self.app.font_manager.path_of(font_name)
+        font_name = self.font_combo.currentText()
+        font_path = self.app.font_manager.path_of(font_name)
         if font_path is None:
-            messagebox.showerror("フォントエラー", "TTF/OTFフォントを選択してください")
+            QMessageBox.critical(self, "フォントエラー", "TTF/OTFフォントを選択してください")
             return
-        tmp_font = ImageFont.truetype(font_path, int(self.size_var.get() * self.app.scale)); asc, _ = tmp_font.getmetrics()
-        coord = Coordinate.gui_to_pdf_baseline(e.x, e.y, self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
-        self.show_entry(e.x, e.y, font_name, self.size_var.get(), lambda txt: self._commit_add(txt, coord, font_name))
+        tmp_font = ImageFont.truetype(font_path, int(self._size_value() * self.app.scale))
+        asc, _ = tmp_font.getmetrics()
+        coord = Coordinate.gui_to_pdf_baseline(p.x(), p.y(), self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
+        self.show_entry(p.x(), p.y(), font_name, self._size_value(), lambda txt: self._commit_add(txt, coord, font_name))
 
     def _commit_add(self, txt, coord, font_name):
         if txt:
-            self.app.add_text(coord, txt, font_name, self.size_var.get()); self.render()
+            self.app.add_text(coord, txt, font_name, self._size_value())
+            self.render()
 
-    def on_select(self, e):
+    def on_select(self, p: QPoint):
         if not self._editable():
             return
-        item, x, y_top = self._find_hit(e)
-        self.app.drag_item = item; self.selected_item = item
+        item, x, y_top = self._find_hit(p)
+        self.app.drag_item = item
+        self.selected_item = item
         if item:
-            self.drag_before = replace(item); self.app.drag_offset = (e.x - x, e.y - y_top); self.panning = False
+            self.drag_before = replace(item)
+            self.app.drag_offset = (p.x() - x, p.y() - y_top)
+            self.panning = False
         else:
-            self.panning = True; self.pan_start = (e.x, e.y)
+            self.panning = True
+            self.pan_start = (p.x(), p.y())
 
-    def on_drag(self, e):
+    def on_drag(self, p: QPoint):
         if not self._editable():
             return
         if self.app.drag_item:
-            font = self._font(self.app.drag_item); asc, _ = font.getmetrics()
-            nx, ny = e.x - self.app.drag_offset[0], e.y - self.app.drag_offset[1]
+            font = self._font(self.app.drag_item)
+            asc, _ = font.getmetrics()
+            nx, ny = p.x() - self.app.drag_offset[0], p.y() - self.app.drag_offset[1]
             self.app.drag_item.coordinate = Coordinate.gui_to_pdf_baseline(nx, ny, self.app.scale, self.app.page_height, tuple(self.pan_offset), asc)
             self.render()
         elif self.panning:
-            dx, dy = e.x - self.pan_start[0], e.y - self.pan_start[1]; self.pan_offset[0] += dx; self.pan_offset[1] += dy; self.pan_start = (e.x, e.y); self.render()
+            dx, dy = p.x() - self.pan_start[0], p.y() - self.pan_start[1]
+            self.pan_offset[0] += dx
+            self.pan_offset[1] += dy
+            self.pan_start = (p.x(), p.y())
+            self.render()
 
-    def on_release(self, _):
+    def on_release(self):
         if self.app.drag_item and self.drag_before:
             self.app.move_text(self.drag_before, replace(self.app.drag_item))
-        self.drag_before = None; self.panning = False
+        self.drag_before = None
+        self.panning = False
 
-    def on_delete(self, _):
-        if not self._editable():
-            return
-        if self.selected_item:
+    def on_delete(self):
+        if self._editable() and self.selected_item:
             self.app.delete_text(self.selected_item)
             self.selected_item = None
             self.render()
 
-    def on_double_click(self, e):
+    def on_double_click(self, p: QPoint):
         if not self._editable():
             return
-        item, _, _ = self._find_hit(e)
+        item, _, _ = self._find_hit(p)
         if not item:
             return
-        new_text = simpledialog.askstring("Edit Text", "テキストを編集", initialvalue=item.text)
-        if new_text is None:
+        new_text, ok = QInputDialog.getText(self, "Edit Text", "テキストを編集", text=item.text)
+        if not ok:
             return
         before = replace(item)
         item.text = new_text
-        item.font_size = float(self.size_var.get())
-        item.font_name = self.font_var.get()
+        item.font_size = float(self._size_value())
+        item.font_name = self.font_combo.currentText()
         item.font_path = self.app.font_manager.path_of(item.font_name)
         self.app.edit_text(before, replace(item))
         self.render()
 
-    def on_zoom(self, e): self.app.scale *= 1.2 if e.delta > 0 else 1 / 1.2; self.render()
+    def on_zoom(self, delta: int):
+        self.app.scale *= 1.2 if delta > 0 else 1 / 1.2
+        self.render()
+
     def undo(self):
-        if not self._editable():
-            return
-        self.app.undo(); self.render()
+        if self._editable():
+            self.app.undo()
+            self.render()
 
     def redo(self):
-        if not self._editable():
-            return
-        self.app.redo(); self.render()
+        if self._editable():
+            self.app.redo()
+            self.render()
+
     def next_page(self):
-        if self.app.page_index < len(self.app.doc) - 1: self.app.page_index += 1; self.render()
+        if self.app.page_index < len(self.app.doc) - 1:
+            self.app.page_index += 1
+            self.render()
+
     def prev_page(self):
-        if self.app.page_index > 0: self.app.page_index -= 1; self.render()
+        if self.app.page_index > 0:
+            self.app.page_index -= 1
+            self.render()
 
     def preview_export(self):
-        ok, msg, path = self.app.create_preview(); self.status.set(msg)
+        ok, msg, path = self.app.create_preview()
+        self.status_label.setText(msg)
         if ok and path:
-            self.app.load_preview(path); self.render()
+            self.app.load_preview(path)
+            self.render()
 
     def save_pdf(self):
         if self.app.is_preview_mode:
-            self.status.set("Preview中は保存できません。Back to Edit で戻ってから保存してください。")
+            self.status_label.setText("Preview中は保存できません。Back to Edit で戻ってから保存してください。")
             return
-        out = filedialog.asksaveasfilename(defaultextension='.pdf', filetypes=[('PDF', '*.pdf')])
-        if not out: return
-        ok, msg = self.app.save(out); self.status.set(msg)
+        out, _ = QFileDialog.getSaveFileName(self, "Save PDF", filter="PDF (*.pdf)")
+        if not out:
+            return
+        _, msg = self.app.save(out)
+        self.status_label.setText(msg)
 
     def open_pdf(self):
-        path = filedialog.askopenfilename(filetypes=[('PDF', '*.pdf')])
-        if not path: return
+        path, _ = QFileDialog.getOpenFileName(self, "Open PDF", filter="PDF (*.pdf)")
+        if not path:
+            return
         self._clear_interaction_state()
         self.app.cleanup_preview()
-        self.app.__init__(path); self.font_var.set(self.app.current_font_name); self.pan_offset = [0.0, 0.0]; self.render()
+        self.app.__init__(path)
+        self.font_combo.setCurrentText(self.app.current_font_name)
+        self.pan_offset = [0.0, 0.0]
+        self.render()
 
     def back_to_edit(self):
         self._clear_interaction_state()
         self.app.load_source()
         self.render()
-
 
     def _clear_interaction_state(self):
         self.selected_item = None
@@ -203,14 +314,27 @@ class MainWindow:
         self.panning = False
 
     def add_font(self):
-        path = filedialog.askopenfilename(filetypes=[('Font', '*.ttf *.otf')])
-        if not path: return
-        name = self.app.font_manager.add_font(path); self.font_menu['menu'].add_command(label=name, command=tk._setit(self.font_var, name)); self.font_var.set(name)
+        path, _ = QFileDialog.getOpenFileName(self, "Add Font", filter="Fonts (*.ttf *.otf)")
+        if not path:
+            return
+        name = self.app.font_manager.add_font(path)
+        self.font_combo.addItem(name)
+        self.font_combo.setCurrentText(name)
 
-    def show_entry(self, x, y, font_name, font_size, on_commit):
-        if self.entry: self.entry.destroy()
-        self.entry = tk.Entry(self.canvas, font=(font_name, int(font_size * self.app.scale))); self.entry.place(x=x, y=y); self.entry.focus_set()
-        def commit(_=None):
-            if not self.entry: return
-            txt = self.entry.get(); self.entry.destroy(); self.entry = None; on_commit(txt)
-        self.entry.bind('<Return>', commit); self.entry.bind('<FocusOut>', commit)
+    def show_entry(self, x, y, _font_name, _font_size, on_commit):
+        if self.entry:
+            self.entry.deleteLater()
+        self.entry = QLineEdit(self.canvas)
+        self.entry.move(x, y)
+        self.entry.returnPressed.connect(lambda: self._commit_entry(on_commit))
+        self.entry.editingFinished.connect(lambda: self._commit_entry(on_commit))
+        self.entry.show()
+        self.entry.setFocus()
+
+    def _commit_entry(self, on_commit):
+        if not self.entry:
+            return
+        text = self.entry.text()
+        self.entry.deleteLater()
+        self.entry = None
+        on_commit(text)
